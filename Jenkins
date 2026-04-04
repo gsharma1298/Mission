@@ -1,0 +1,96 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+        SONAR_TOKEN = credentials('sonar-token')
+    }
+
+    stages {
+
+        stage('Git Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/gsharma1298/Boardgame.git'
+            }
+        }
+
+        stage('Compile') {
+            steps {
+                sh 'mvn compile'
+            }
+        }
+
+        stage('Trivy Scan') {
+            steps {
+                sh 'trivy fs --format table -o trivyfile.html .'
+            }
+        }
+
+        stage('SonarQube Scan') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh """
+                    $SCANNER_HOME/bin/sonar-scanner \
+                    -Dsonar.projectKey=Boardgame \
+                    -Dsonar.projectName=Boardgame \
+                    -Dsonar.host.url=http://13.235.248.6:9000 \
+                    -Dsonar.login=$SONAR_TOKEN \
+                    -Dsonar.java.binaries=.
+                    """
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('package') {
+            steps {
+                sh 'mvn package'
+            }
+        }
+
+        stage('push to nexus') {
+            steps {
+                withMaven(globalMavenSettingsConfig: 'global-settings',
+                          jdk: 'jdk17',
+                          maven: 'maven3',
+                          traceability: true) {
+                    sh 'mvn deploy'
+                }
+            }
+        }
+
+        stage('build docker image') {
+            steps {
+                sh 'docker build -t gsharma1298/boardgame:01 .'
+            }
+        }
+
+        stage('Trivy image Scan') {
+            steps {
+                sh 'trivy image --format table -o trivyfile.html gsharma1298/boardgame:01'
+            }
+        }
+
+        stage('docker push image') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                        sh 'docker push gsharma1298/boardgame:01'
+                    }
+                }
+            }
+        }
+    }
+}
