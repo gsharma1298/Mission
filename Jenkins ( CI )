@@ -8,20 +8,19 @@ pipeline {
 
     environment {
         SCANNER_HOME = tool 'sonar-scanner'
-        SONAR_TOKEN = credentials('sonar-token')
     }
 
     stages {
 
         stage('Git Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/gsharma1298/Boardgame.git'
+                git branch: 'main', url: 'https://github.com/gsharma1298/Mission.git'
             }
         }
 
         stage('Compile') {
             steps {
-                sh 'mvn compile'
+                sh 'mvn clean package -DskipTests'
             }
         }
 
@@ -36,11 +35,9 @@ pipeline {
                 withSonarQubeEnv('sonar') {
                     sh """
                     $SCANNER_HOME/bin/sonar-scanner \
-                    -Dsonar.projectKey=Boardgame \
-                    -Dsonar.projectName=Boardgame \
-                    -Dsonar.host.url=http://13.235.248.6:9000 \
-                    -Dsonar.login=$SONAR_TOKEN \
-                    -Dsonar.java.binaries=.
+                    -Dsonar.projectKey=mission \
+                    -Dsonar.projectName=mission \
+                     -Dsonar.java.binaries=target/classes
                     """
                 }
             }
@@ -56,30 +53,27 @@ pipeline {
 
         stage('package') {
             steps {
-                sh 'mvn package'
+                sh 'mvn package -DskipTests'
             }
         }
 
-        stage('push to nexus') {
-            steps {
-                withMaven(globalMavenSettingsConfig: 'global-settings',
-                          jdk: 'jdk17',
-                          maven: 'maven3',
-                          traceability: true) {
-                    sh 'mvn deploy'
+       stage('Deploy to Nexus') {
+    steps {
+        withMaven(globalMavenSettingsConfig: 'nexus', jdk: 'jdk17',
+        maven: 'maven3', traceability: true) {
+         sh 'mvn deploy -DskipTests'
                 }
-            }
-        }
-
+               }
+                }
         stage('build docker image') {
             steps {
-                sh 'docker build -t gsharma1298/boardgame:01 .'
+                sh 'docker build -t gsharma1298/mission:01 .'
             }
         }
 
         stage('Trivy image Scan') {
             steps {
-                sh 'trivy image --format table -o trivyfile.html gsharma1298/boardgame:01'
+                sh 'trivy image --format table -o trivyfile.html gsharma1298/mission:01'
             }
         }
 
@@ -87,10 +81,16 @@ pipeline {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
-                        sh 'docker push gsharma1298/boardgame:01'
+                        sh 'docker push gsharma1298/mission:01'
                     }
                 }
             }
         }
+        
+         stage('docker run') {
+            steps {
+                        sh 'docker run -d -p 6000:6000 --name mission gsharma1298/mission:01'
+                    }
+                }
     }
 }
